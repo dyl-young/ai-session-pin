@@ -55,6 +55,7 @@ Then reload (`source ~/.zshrc` or open a new tab). Without it, the binaries stil
 | Command                               | What it does                                                        |
 | ------------------------------------- | ------------------------------------------------------------------- |
 | `pin`                                 | Pin the most recently modified session in the current directory     |
+| `pin -P cc` / `pin --provider cursor` | Only consider sessions from that tool (short label or full id)      |
 | `pin <sessionId>`                     | Pin a specific session by id (full or unique prefix)                |
 | `pin -n "..."` / `pin --name "..."`   | Pin and override the auto-derived display name (sticks through re-pins) |
 | `pin --sync-name`                     | Drop a custom name and follow the agent's own title again |
@@ -74,7 +75,7 @@ Then reload (`source ~/.zshrc` or open a new tab). Without it, the binaries stil
 ### Notes
 
 - **Pinning:** display names come from the agent's own title, so they match what `claude -r` and Cursor's picker show. Rename a chat inside either tool and `pins` picks it up on the next listing. Override the name with `-n` / `--name` and it sticks through re-pins, until you pass `--sync-name` to follow the agent's title again.
-- **Providers:** `pin` with no argument looks at both tools and takes whichever session in the directory was touched most recently. Resume runs `claude -r <id>` or `agent --resume=<id>` from the pin's project directory.
+- **Providers:** `pin` with no argument looks at both tools and takes whichever session in the directory was touched most recently. It prints which tool it chose, and when the runner-up was used within a day of the winner it names that too, so a close call is visible rather than silent. Pass `-P` / `--provider` to force one, by short label (`cc`, `cr`) or full id (`claude`, `cursor`). `-P` is a restriction, not a preference: if that tool has no session in the directory, `pin` fails instead of falling back. Resume runs `claude -r <id>` or `agent --resume=<id>` from the pin's project directory.
 - **TUI:** `^X` stages a pin/unpin toggle on the highlighted row; changes apply when you quit. Soft-deleted entries hide from `pins` but still show in `pins --all`, where you can re-pin them with `^X`. Press `^R` to rename the highlighted row inline (`⏎` saves, `esc` cancels). Press `/` to filter rows live; `⏎` exits filter-edit mode and keeps the filter, `esc` clears it. Press `⇥` to switch what the filter matches, project path or chat name. It re-filters in place, so you can find a chat by name when you don't remember its project. The hint line shows the active scope (`filter project:` / `filter name:`), and `-N` / `--by name` sets the starting scope.
 - **Skills:** inside Claude Code, the bundled `pin` / `unpin` skills (see [Skills](#skills)) wrap the same commands so you can pin without leaving the chat.
 
