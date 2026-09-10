@@ -12,17 +12,25 @@ const cli = cac("pin");
 
 const addAction = (
   sessionId: string | undefined,
-  opts: { name?: string; syncName?: boolean },
-) => addCommand({ sessionToken: sessionId, name: opts.name, syncName: opts.syncName });
+  opts: { name?: string; syncName?: boolean; provider?: string },
+) =>
+  addCommand({
+    sessionToken: sessionId,
+    name: opts.name,
+    syncName: opts.syncName,
+    provider: opts.provider,
+  });
 
 cli
   .command("[sessionId]", "Pin a session (defaults to latest in cwd)")
+  .option("-P, --provider <id>", "Only pin from this tool (e.g. cc, cr)")
   .option("-n, --name <name>", "Display name for the pin (sticks until --sync-name)")
   .option("--sync-name", "Drop a custom name and follow the agent's title again")
   .action(addAction);
 
 cli
   .command("add [sessionId]", "Pin a session explicitly")
+  .option("-P, --provider <id>", "Only pin from this tool (e.g. cc, cr)")
   .option("-n, --name <name>", "Display name (sticks until --sync-name)")
   .option("--sync-name", "Drop a custom name and follow the agent's title again")
   .action(addAction);

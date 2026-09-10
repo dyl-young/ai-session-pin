@@ -1,15 +1,34 @@
-import { findByPrefix, latestForCwd, type SessionEntry } from "../providers/index.js";
+import {
+  latestPerProvider,
+  providerFor,
+  resolveProviderToken,
+  findByPrefix,
+  type SessionEntry,
+} from "../providers/index.js";
 import { loadStore, saveStore, type Pin } from "../store.js";
 import { bold, dim, green, yellow } from "../colors.js";
+import { relativeTime } from "../time.js";
 
 export type AddOptions = {
   sessionToken?: string;
   name?: string;
   syncName?: boolean;
+  /** Short label ("cr") or full id ("cursor"); restricts which tool to pin from. */
+  provider?: string;
 };
 
+/**
+ * Largest gap between the winning session and the next tool's before we stop
+ * mentioning the runner-up. This measures the gap, not absolute age: two tools
+ * used minutes apart are an ambiguous choice whenever that happened, while a
+ * tool last used a day before the winner clearly is not what you meant.
+ */
+const RUNNER_UP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+type Located = { entry: SessionEntry; runnerUp?: SessionEntry };
+
 export async function addCommand(opts: AddOptions): Promise<void> {
-  const entry = await locateSession(opts.sessionToken);
+  const { entry, runnerUp } = await locateSession(opts.sessionToken, opts.provider);
 
   const store = await loadStore();
   const existing = store.pins.find((p) => p.sessionId === entry.sessionId);
@@ -32,11 +51,11 @@ export async function addCommand(opts: AddOptions): Promise<void> {
       existing.status = "pinned";
       existing.pinnedAt = new Date().toISOString();
       await saveStore(store);
-      printPinSummary("Re-pinned", existing);
+      printPinSummary("Re-pinned", existing, { runnerUp });
       return;
     }
     await saveStore(store);
-    printPinSummary("Already pinned", existing, { footer: "cache refreshed" });
+    printPinSummary("Already pinned", existing, { footer: "cache refreshed", runnerUp });
     return;
   }
 
@@ -58,31 +77,63 @@ export async function addCommand(opts: AddOptions): Promise<void> {
 
   store.pins.push(pin);
   await saveStore(store);
-  printPinSummary("Pinned", pin);
+  printPinSummary("Pinned", pin, { runnerUp });
 }
 
-function printPinSummary(verb: string, pin: Pin, opts: { footer?: string } = {}): void {
-  console.log(bold(`⚲ ${verb} "${pin.name}"`));
+function printPinSummary(
+  verb: string,
+  pin: Pin,
+  opts: { footer?: string; runnerUp?: SessionEntry } = {},
+): void {
+  const provider = providerFor(pin.provider);
+  console.log(bold(`⚲ ${verb} "${pin.name}"`) + dim(` · ${provider.id}`));
   console.log(
     `  ${dim("id")}  ${green(pin.sessionId)}   ${dim("·")}   ${dim(pin.projectPath)}`,
   );
+  if (opts.runnerUp) {
+    const other = providerFor(opts.runnerUp.provider);
+    console.log(
+      `  ${yellow(`${other.id} was also active here ${relativeTime(opts.runnerUp.modified)}`)}` +
+        dim(`  ·  pin it with -P ${other.label}`),
+    );
+  }
   if (opts.footer) console.log(`  ${yellow(opts.footer)}`);
 }
 
-async function locateSession(token: string | undefined): Promise<SessionEntry> {
+async function locateSession(
+  token: string | undefined,
+  providerToken: string | undefined,
+): Promise<Located> {
+  const only = providerToken ? resolveProviderToken(providerToken) : undefined;
+
   if (!token) {
-    const latest = await latestForCwd(process.cwd());
-    if (!latest) {
-      throw new Error(`No agent sessions found for ${process.cwd()}. Provide a session id explicitly.`);
+    const cwd = process.cwd();
+    if (only) {
+      // An explicit --provider is a request, not a hint: fall back to another
+      // tool and we would silently pin the thing that was not asked for.
+      const latest = await only.latestForCwd(cwd);
+      if (!latest) throw new Error(`No ${only.id} sessions found for ${cwd}.`);
+      return { entry: latest };
     }
-    return latest;
+    const perProvider = await latestPerProvider(cwd);
+    if (perProvider.length === 0) {
+      throw new Error(
+        `No agent sessions found for ${cwd}. Provide a session id explicitly.`,
+      );
+    }
+    const [entry, next] = perProvider;
+    const recent = next && entry.fileMtime - next.fileMtime <= RUNNER_UP_WINDOW_MS;
+    return { entry, runnerUp: recent ? next : undefined };
   }
 
-  const matches = await findByPrefix(token);
-  if (matches.length === 0) throw new Error(`No session found matching "${token}".`);
+  const matches = only ? await only.findByPrefix(token) : await findByPrefix(token);
+  const scope = only ? ` in ${only.id}` : "";
+  if (matches.length === 0) throw new Error(`No session found matching "${token}"${scope}.`);
   if (matches.length > 1) {
-    const list = matches.map((m) => `  ${m.sessionId}  ${m.summary || m.firstPrompt.slice(0, 50)}`).join("\n");
+    const list = matches
+      .map((m) => `  ${m.sessionId}  ${providerFor(m.provider).label}  ${m.summary || m.firstPrompt.slice(0, 50)}`)
+      .join("\n");
     throw new Error(`Ambiguous session prefix "${token}". Candidates:\n${list}`);
   }
-  return matches[0];
+  return { entry: matches[0] };
 }
